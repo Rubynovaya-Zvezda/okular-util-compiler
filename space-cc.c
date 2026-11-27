@@ -62,13 +62,19 @@ static int path_prefix_is(const char *path, const char *root) {
 
 static int in_allowed_root(const char *path) {
     char abs[PATH_MAX];
-    if (!realpath(path, abs)) return 0;
     char *roots = getenv("SPACE_HOOK_ROOTS");
     if (!roots || !*roots) {
+        /* Bazel exposes source files as symlinks into the workspace, so
+           realpath() points outside the execution root even though the
+           compiler receives a relative path below it. */
+        if (path[0] != '/' && strcmp(path, "..") != 0 &&
+            strncmp(path, "../", 3) != 0) return 1;
+        if (!realpath(path, abs)) return 0;
         char cwd[PATH_MAX];
         if (!getcwd(cwd, sizeof cwd)) return 0;
         return path_prefix_is(abs, cwd);
     }
+    if (!realpath(path, abs)) return 0;
     char *copy = strdup(roots);
     if (!copy) return 0;
     int ok = 0;
