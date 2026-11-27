@@ -68,7 +68,9 @@ static int in_allowed_root(const char *path) {
            realpath() points outside the execution root even though the
            compiler receives a relative path below it. */
         if (path[0] != '/' && strcmp(path, "..") != 0 &&
-            strncmp(path, "../", 3) != 0) return 1;
+            strncmp(path, "../", 3) != 0 &&
+            strncmp(path, "external/", 9) != 0 &&
+            strncmp(path, "bazel-out/", 10) != 0) return 1;
         if (!realpath(path, abs)) return 0;
         char cwd[PATH_MAX];
         if (!getcwd(cwd, sizeof cwd)) return 0;
