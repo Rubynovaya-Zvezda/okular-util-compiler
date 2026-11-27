@@ -7,7 +7,7 @@ def _okc_config_impl(ctx):
     tool_paths = []
     compiler_path = ctx.executable._compiler.short_path
     if compiler_path.startswith("../"):
-        compiler_path = "external/" + compiler_path.lstrip("./")
+        compiler_path = compiler_path.split("/", 2)[-1]
     for entry in base.tool_paths:
         path = compiler_path if entry.name == "gcc" else entry.path
         tool_paths.append(struct(name = entry.name, path = path, type_name = "tool_path"))
