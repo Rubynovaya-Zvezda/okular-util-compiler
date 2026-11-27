@@ -23,4 +23,4 @@ def _okc_repo_impl(repository_ctx):
     repository_ctx.symlink("okc", "clang")
     repository_ctx.file("BUILD.bazel", 'exports_files(["okc", "clang"])\n')
 
-okc_repo = repository_rule(implementation = _okc_repo_impl)
+okc_repo = repository_rule(implementation = _okc_repo_impl, configure = True)
