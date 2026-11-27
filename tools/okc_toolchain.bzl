@@ -5,8 +5,11 @@ load("@rules_cc//cc/toolchains:cc_toolchain_config_info.bzl", "CcToolchainConfig
 def _okc_config_impl(ctx):
     base = ctx.attr.base[CcToolchainConfigInfo]
     tool_paths = []
+    compiler_path = ctx.executable._compiler.short_path
+    if compiler_path.startswith("../"):
+        compiler_path = "external/" + compiler_path.lstrip("./")
     for entry in base.tool_paths:
-        path = ctx.executable._compiler.path if entry.name == "gcc" else entry.path
+        path = compiler_path if entry.name == "gcc" else entry.path
         tool_paths.append(struct(name = entry.name, path = path, type_name = "tool_path"))
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
