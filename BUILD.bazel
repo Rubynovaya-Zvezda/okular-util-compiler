@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_toolchain")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -43,4 +43,28 @@ sh_test(
     name = "hook_tests",
     srcs = ["tests/run.sh"],
     data = [":okc"],
+)
+
+LOCAL = "@local_config_cc//"
+
+filegroup(name = "okc_files", srcs = ["@okc_tool//:okc", "@okc_tool//:clang"])
+
+cc_toolchain(
+    name = "release_impl",
+    all_files = ":okc_files",
+    ar_files = LOCAL + ":compiler_deps",
+    as_files = LOCAL + ":compiler_deps",
+    compiler_files = ":okc_files",
+    dwp_files = LOCAL + ":empty",
+    linker_files = LOCAL + ":compiler_deps",
+    objcopy_files = LOCAL + ":empty",
+    strip_files = LOCAL + ":empty",
+    toolchain_config = LOCAL + ":local",
+    toolchain_identifier = "okc",
+)
+
+toolchain(
+    name = "release",
+    toolchain = ":release_impl",
+    toolchain_type = "@rules_cc//cc:toolchain_type",
 )

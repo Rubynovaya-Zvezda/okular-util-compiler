@@ -5,3 +5,9 @@ module(
 
 bazel_dep(name = "rules_cc", version = "0.2.28")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+
+okc_repo = use_repo_rule("//tools:okc_repo.bzl", "okc_repo")
+okc_repo(name = "okc_tool")
+cc_configure = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc_configure, "local_config_cc")
+register_toolchains("//:release")
