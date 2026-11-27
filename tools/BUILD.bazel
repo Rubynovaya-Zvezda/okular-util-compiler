@@ -1,1 +1,1 @@
-exports_files(["okc_repo.bzl"])
+exports_files(["okc", "okc_repo.bzl"])
