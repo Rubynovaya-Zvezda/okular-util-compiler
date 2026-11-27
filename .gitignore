@@ -1,0 +1,5 @@
+*.o
+/okc
+/bazel-*
+/.cache/
+MODULE.bazel.lock

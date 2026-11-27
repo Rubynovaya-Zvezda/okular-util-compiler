@@ -1,0 +1,46 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+COPTS = ["-std=c23", "-Wall", "-Wextra"]
+
+cc_library(
+    name = "space_rewrite",
+    srcs = ["space_rewrite.c"],
+    hdrs = ["space_rewrite.h"],
+    includes = ["."],
+    copts = COPTS,
+)
+
+cc_library(
+    name = "space_cc",
+    srcs = ["space-cc.c"],
+    hdrs = ["space-cc.h"],
+    deps = [":space_rewrite"],
+    copts = COPTS,
+)
+
+cc_library(
+    name = "space_transform",
+    srcs = ["space-transform.c"],
+    hdrs = ["space-transform.h"],
+    deps = [":space_rewrite"],
+    copts = COPTS,
+)
+
+cc_binary(
+    name = "okc",
+    srcs = ["okc.c"],
+    deps = [
+        ":space_cc",
+        ":space_transform",
+    ],
+    copts = COPTS,
+)
+
+sh_test(
+    name = "hook_tests",
+    srcs = ["tests/run.sh"],
+    data = [":okc"],
+)
