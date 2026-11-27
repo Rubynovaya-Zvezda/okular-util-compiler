@@ -1,1 +1,8 @@
-exports_files(["clang", "okc_repo.bzl"])
+load(":okc_toolchain.bzl", "okc_toolchain_config")
+
+exports_files(["clang", "clang_resource.bzl", "okc_repo.bzl", "okc_toolchain.bzl"])
+
+okc_toolchain_config(
+    name = "okc_config",
+    visibility = ["//visibility:public"],
+)

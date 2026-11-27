@@ -1,11 +1,10 @@
 #!/bin/sh
-# Bootstrap wrapper: compile okc from this module's sources with clang on first
-# use, cache the binary in the module's external repo, then run it.
-src=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
-out="$src/okc-tool-bin"
-if [ ! -x "$out" ]; then
-    clang -std=c23 -O2 -o "$out" \
-        "$src/okc.c" "$src/space-cc.c" "$src/space-transform.c" \
-        "$src/space_rewrite.c" || exit 1
-fi
-exec "$out" "$@"
+# Compiler entry point: run the okc binary produced by the okc_repo repository
+# rule. The toolchain declares that binary as an input, so Bazel fetches/builds
+# it before any compile action; fallback to plain clang if it is unavailable.
+for okc in external/*okc_repo*okc_tool/okc; do
+    if [ -x "$okc" ]; then
+        exec "$okc" "$@"
+    fi
+done
+exec clang "$@"

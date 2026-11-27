@@ -47,19 +47,19 @@ sh_test(
 
 LOCAL = "@local_config_cc//"
 
-filegroup(name = "okc_files", srcs = ["@okc_tool//:okc", "@okc_tool//:clang"])
+filegroup(name = "okc_files", srcs = ["@okc_tool//:okc", "@okc_tool//:clang", "//tools:clang"])
 
 cc_toolchain(
     name = "release_impl",
     all_files = ":okc_files",
-    ar_files = LOCAL + ":compiler_deps",
-    as_files = LOCAL + ":compiler_deps",
+    ar_files = ":okc_files",
+    as_files = ":okc_files",
     compiler_files = ":okc_files",
     dwp_files = LOCAL + ":empty",
-    linker_files = LOCAL + ":compiler_deps",
+    linker_files = ":okc_files",
     objcopy_files = LOCAL + ":empty",
     strip_files = LOCAL + ":empty",
-    toolchain_config = LOCAL + ":local",
+    toolchain_config = "//tools:okc_config",
     toolchain_identifier = "okc",
 )
 
