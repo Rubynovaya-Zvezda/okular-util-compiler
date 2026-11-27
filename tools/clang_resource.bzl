@@ -20,6 +20,7 @@ def _impl(repository_ctx):
     resource = repository_ctx.execute([str(clang), "-print-resource-dir"])
     if resource.return_code == 0:
         includes.append(resource.stdout.strip() + "/include")
+        includes.append(resource.stdout.strip() + "/share")
     repository_ctx.file("BUILD.bazel", "exports_files([\"defs.bzl\"])\n")
     body = "INCLUDES = [\n"
     for path in includes:
