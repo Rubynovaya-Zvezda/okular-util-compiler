@@ -2,7 +2,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const { LanguageClient, TransportKind, commands, workspace, window } = require('coc.nvim')
+const { LanguageClient, commands, workspace, window } = require('coc.nvim')
 
 let client = null
 
@@ -10,6 +10,8 @@ function hasMarker(uri) {
   let dir = path.dirname(String(uri).replace(/^file:\/\//, ''))
   for (let i = 0; i < 32 && dir && dir !== path.dirname(dir); i++) {
     if (fs.existsSync(path.join(dir, '.okc')) || fs.existsSync(path.join(dir, 'okc.json'))) return true
+    const mod = path.join(dir, 'MODULE.bazel')
+    if (fs.existsSync(mod) && /okular-compiler/.test(fs.readFileSync(mod, 'utf8'))) return true
     dir = path.dirname(dir)
   }
   return false
@@ -38,10 +40,11 @@ function makeClient(s = settings()) {
   const args = ['lsp'].concat(s.args).map(String)
   const env = Object.assign({}, process.env)
   if (s.clangd) env.SPACE_CLANGD = s.clangd
+  // No explicit transport: coc uses stdio streams without appending --stdio,
+  // which some clangd versions reject. okc lsp also strips it defensively.
   const serverOptions = {
     command: s.command,
     args,
-    transport: TransportKind.stdio,
     options: { env }
   }
   const clientOptions = {

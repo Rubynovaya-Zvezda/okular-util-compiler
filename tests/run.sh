@@ -655,6 +655,8 @@ filetype plugin on
 source $PWD/vim/plugin/okc.vim
 edit $tmp/vimplain.c
 call writefile([string(hlexists('okcSpaceDecl')), string(&foldmethod)], '$tmp/vimplain')
+edit $tmp/bazelproj/a.c
+call writefile([string(hlexists('okcSpaceDecl'))], '$tmp/vimmodule')
 edit $tmp/vimfold.c
 call writefile([string(hlexists('okcSpaceDecl')), string(&foldmethod), string(okc#fold(2)), string(okc#fold(6))], '$tmp/vimresult')
 qa!
@@ -662,6 +664,9 @@ EOF
 cat > "$tmp/vimplain.c" <<'EOF'
 int main(void) { return 0; }
 EOF
+mkdir -p "$tmp/bazelproj"
+printf 'bazel_dep(name = "okular-compiler", version = "0.1.0")\n' > "$tmp/bazelproj/MODULE.bazel"
+printf 'int main(void) { return 0; }\n' > "$tmp/bazelproj/a.c"
 cat > "$tmp/vimfold.c" <<'EOF'
 int g;
 space outer {
@@ -672,6 +677,7 @@ space outer {
 EOF
 vim -Es -u NONE -i NONE -S "$tmp/vimtest.vim" >/dev/null 2>&1 || fail "vim plugin load"
 [ "$(sed -n 1p "$tmp/vimplain")" = '0' ] || fail "vim plugin on plain C"
+[ "$(sed -n 1p "$tmp/vimmodule")" = '1' ] || fail "vim bazel module detection"
 [ "$(sed -n 1p "$tmp/vimresult")" = '1' ] || fail "vim syntax groups"
 [ "$(sed -n 2p "$tmp/vimresult")" = "'expr'" ] || fail "vim foldmethod"
 [ "$(sed -n 3p "$tmp/vimresult")" = '1' ] || fail "vim outer fold"

@@ -1007,6 +1007,9 @@ int space_lsp_main(int argc, char **argv) {
         } else if (!strcmp(argv[i], "--clangd") && i + 1 < argc) {
             clangd = argv[++i];
             args[0] = (char *)clangd;
+        } else if (!strcmp(argv[i], "--stdio")) {
+            /* coc.nvim appends this for stdio transport; clangd uses stdio by
+             * default and some versions reject the flag. */
         } else {
             args[nargs++] = argv[i];
         }

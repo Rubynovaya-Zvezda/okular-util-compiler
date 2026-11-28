@@ -18,6 +18,10 @@ function! s:is_okc() abort
   if !empty(findfile('.okc', '.;')) || !empty(findfile('okc.json', '.;'))
     return 1
   endif
+  let l:mod = findfile('MODULE.bazel', '.;')
+  if !empty(l:mod) && !empty(filter(readfile(l:mod), 'v:val =~# "okular-compiler"'))
+    return 1
+  endif
   let l:head = getline(1, min([line('$'), 400]))
   return !empty(filter(copy(l:head), 'v:val =~# "space\\s\\+\\h\\w*\\s*{" || v:val =~# "\\h\\w*\\s*::\\s*\\h\\w*"'))
 endfunction

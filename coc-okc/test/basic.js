@@ -60,6 +60,7 @@ async function main() {
   assert.strictEqual(client.serverOptions.command, '/opt/okc')
   assert.deepStrictEqual(client.serverOptions.args, ['lsp', '--log=verbose'])
   assert.strictEqual(client.serverOptions.options.env.SPACE_CLANGD, 'clangd-19')
+  assert.strictEqual(client.serverOptions.transport, undefined)
   assert.deepStrictEqual(client.clientOptions.documentSelector.map(d => d.language),
     ['c', 'okc', undefined, 'c', 'okc'])
 
@@ -69,6 +70,9 @@ async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-okc-'))
   fs.writeFileSync(path.join(dir, '.okc'), '')
   assert.strictEqual(okc.isOkcDocument({ languageId: 'c', uri: 'file://' + path.join(dir, 'a.c'), getText: () => 'int x;' }), true)
+  const bmod = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-okc-bazel-'))
+  fs.writeFileSync(path.join(bmod, 'MODULE.bazel'), 'bazel_dep(name = "okular-compiler", version = "0.1.0")\n')
+  assert.strictEqual(okc.isOkcDocument({ languageId: 'c', uri: 'file://' + path.join(bmod, 'a.c'), getText: () => 'int x;' }), true)
 
   coc.workspace.textDocuments = [{ languageId: 'c', uri: 'file:///tmp/a.c', getText: () => 'x::y' }]
   created = []
