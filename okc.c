@@ -1,4 +1,5 @@
 #include "space-cc.h"
+#include "space-lsp.h"
 #include "space-transform.h"
 
 #include <stdio.h>
@@ -9,6 +10,7 @@ static void usage(void) {
     fprintf(stderr,
             "usage: okc compile <clang args...>\n"
             "       okc prepare [-o FILE] [--] FILE\n"
+            "       okc lsp [--clangd=PATH] [clangd args...]\n"
             "       okc <clang args...>   (same as 'compile', for CC=okc)\n");
 }
 
@@ -36,5 +38,7 @@ int main(int argc, char **argv) {
         return run_subcommand(space_transform_main, argc, argv);
     if (strcmp(argv[1], "compile") == 0)
         return run_subcommand(space_cc_main, argc, argv);
+    if (strcmp(argv[1], "lsp") == 0)
+        return run_subcommand(space_lsp_main, argc, argv);
     return space_cc_main(argc, argv);
 }

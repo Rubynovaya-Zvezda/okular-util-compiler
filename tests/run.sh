@@ -68,6 +68,31 @@ grep -q '^int y_outside = 4;' "$tmp/scope.out.c" || fail "qualified name outside
 grep -q '^int g(void) { return outside + y_outside; }' "$tmp/scope.out.c" || fail "uses outside"
 grep -q '^int h(void) { return y_outside; }' "$tmp/scope.out.c" || fail "global qualified name outside"
 pass "global and qualified name resolution"
+cat > "$tmp/unary.c" <<'E48'
+int name = 1;
+space x { int name = 2; }
+space x_name { int name = 3; }
+int *a = &x::name;
+int b = *x::name;
+int *c = &::name;
+int d = *::name;
+int *e = &x_name::name;
+int f = *x_name::name;
+space z {
+  int *g = &x::name;
+  int h = *::name;
+}
+E48
+./okc prepare -o "$tmp/unary.out.c" "$tmp/unary.c"
+grep -Fq 'int *a = &x_name;' "$tmp/unary.out.c" || fail "address of qualified name"
+grep -Fq 'int b = *x_name;' "$tmp/unary.out.c" || fail "dereference of qualified name"
+grep -Fq 'int *c = &name;' "$tmp/unary.out.c" || fail "address of global name"
+grep -Fq 'int d = *name;' "$tmp/unary.out.c" || fail "dereference of global name"
+grep -Fq 'int *e = &x_name_name;' "$tmp/unary.out.c" || fail "address of nested qualified name"
+grep -Fq 'int f = *x_name_name;' "$tmp/unary.out.c" || fail "dereference of nested qualified name"
+grep -Fq 'int *z_g = &x_name;' "$tmp/unary.out.c" || fail "address of qualified name in space"
+grep -Fq 'int z_h = *name;' "$tmp/unary.out.c" || fail "dereference of global name in space"
+pass "unary operators before qualified and global names"
 cat > "$tmp/params.c" <<'E11'
 space x {
  bool v = false;
@@ -594,4 +619,74 @@ if grep -q 'usage\.md' "$doc" && [ ! -e "$(dirname "$doc")/usage.md" ]; then
     fail "stale usage.md reference"
 fi
 pass "no stale documentation link"
+cat > "$tmp/fake-clangd" <<'EOS'
+#!/bin/sh
+frame() { printf 'Content-Length: %s\r\n\r\n%s' "${#1}" "$1"; }
+cat > "$FAKE_LOG"
+frame '{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"astProvider":true,"textDocumentSync":{"change":2}}}}'
+frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t.c","diagnostics":[{"range":{"start":{"line":1,"character":8},"end":{"line":1,"character":11}},"message":"x"}]}}'
+frame '{"jsonrpc":"2.0","id":2,"result":[{"label":"a_v","insertText":"a_v","textEdit":{"range":{"start":{"line":1,"character":8},"end":{"line":1,"character":11}},"newText":"a_v"}}]}'
+EOS
+chmod +x "$tmp/fake-clangd"
+frame() { printf 'Content-Length: %s\r\n\r\n%s' "${#1}" "$1"; }
+{
+frame '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+frame '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.c","languageId":"c","version":1,"text":"space a { int v = 7; }\nint x = a::v;\n"}}}'
+frame '{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///t.c"},"position":{"line":1,"character":11}}}'
+frame '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///t.c","version":2},"contentChanges":[{"text":"space a { int v = 7; }\nint y = a::v;\n"}]}}'
+} > "$tmp/lsp.in"
+FAKE_LOG="$tmp/lsp.log" SPACE_CLANGD="$tmp/fake-clangd" ./okc lsp < "$tmp/lsp.in" > "$tmp/lsp.out"
+grep -Fq 'int x = a_v;' "$tmp/lsp.log" || fail "lsp didOpen rewrite"
+grep -Fq 'int y = a_v;' "$tmp/lsp.log" || fail "lsp didChange rewrite"
+if grep -Fq 'a::v' "$tmp/lsp.log"; then fail "lsp qualified name not rewritten"; fi
+grep -Fq '"character":10' "$tmp/lsp.log" || fail "lsp request position mapping"
+grep -Fq '"astProvider":true' "$tmp/lsp.out" || fail "lsp boolean round trip"
+grep -Fq '"textDocumentSync":1' "$tmp/lsp.out" || fail "lsp full sync override"
+grep -Fq '"character":12' "$tmp/lsp.out" || fail "lsp diagnostic position mapping"
+grep -Fq '"label":"a::v"' "$tmp/lsp.out" || fail "lsp completion label unrewrite"
+grep -Fq '"insertText":"a::v"' "$tmp/lsp.out" || fail "lsp completion insert text unrewrite"
+grep -Fq '"newText":"a::v"' "$tmp/lsp.out" || fail "lsp text edit unrewrite"
+pass "clangd lsp proxy rewrites documents, edits and positions"
+if command -v vim >/dev/null 2>&1 && [ -d vim ]; then
+cat > "$tmp/vimtest.vim" <<EOF
+set rtp^=$PWD/vim
+set nocompatible
+filetype plugin on
+source $PWD/vim/plugin/okc.vim
+edit $tmp/vimplain.c
+call writefile([string(hlexists('okcSpaceDecl')), string(&foldmethod)], '$tmp/vimplain')
+edit $tmp/vimfold.c
+call writefile([string(hlexists('okcSpaceDecl')), string(&foldmethod), string(okc#fold(2)), string(okc#fold(6))], '$tmp/vimresult')
+qa!
+EOF
+cat > "$tmp/vimplain.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/vimfold.c" <<'EOF'
+int g;
+space outer {
+  int a;
+  space inner { int b; }
+  int c = a::v;
+}
+EOF
+vim -Es -u NONE -i NONE -S "$tmp/vimtest.vim" >/dev/null 2>&1 || fail "vim plugin load"
+[ "$(sed -n 1p "$tmp/vimplain")" = '0' ] || fail "vim plugin on plain C"
+[ "$(sed -n 1p "$tmp/vimresult")" = '1' ] || fail "vim syntax groups"
+[ "$(sed -n 2p "$tmp/vimresult")" = "'expr'" ] || fail "vim foldmethod"
+[ "$(sed -n 3p "$tmp/vimresult")" = '1' ] || fail "vim outer fold"
+[ "$(sed -n 4p "$tmp/vimresult")" = '1' ] || fail "vim closing fold line"
+pass "vim syntax and folding plugin with okc detection"
+fi
+if command -v node >/dev/null 2>&1 && [ -f coc-okc/lib/index.js ]; then
+    (cd coc-okc && node test/basic.js >/dev/null) || fail "coc-okc extension"
+    pass "coc-okc extension"
+fi
+mkdir -p "$tmp/installcheck"
+cp install-okc.sh "$tmp/installcheck/install-okc.sh"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/installcheck/okc"
+chmod +x "$tmp/installcheck/okc" "$tmp/installcheck/install-okc.sh"
+"$tmp/installcheck/install-okc.sh" --bindir="$tmp/installcheck/bin" >/dev/null
+[ -x "$tmp/installcheck/bin/okc" ] || fail "install_okc target script"
+pass "install_okc script"
 echo "all hook tests passed"

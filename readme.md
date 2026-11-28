@@ -50,4 +50,47 @@ Build: `bazel build //...` · Test: `bazel test //...`
   okc prepare -o output.c input.c
   ```
 
-No allowlist or data files: copy `okc` to a machine with clang and it works.
+## LSP: `okc lsp`
+
+Point your editor's clangd executable at `okc lsp` (e.g. command `okc`,
+args `["lsp", ...clangd flags...]`). It starts real clangd, intercepts LSP
+messages and applies the same namespace rewriting to `didOpen`/`didChange`
+text before clangd sees it. Request positions are translated into rewritten
+coordinates and diagnostics/ranges are translated back, so line numbers and
+columns refer to your original source. The `textDocumentSync` capability is
+forced to full-document sync, which keeps the proxy's copy authoritative.
+
+`SPACE_CLANGD=PATH` (or `okc lsp --clangd=PATH`) selects the underlying
+clangd; by default `clangd` is used from `PATH`.
+
+Completion, hover and diagnostics work with the rewritten names (e.g.
+`a::v` is seen as `a_v`). Inserted text is converted back using the spelling
+used at the edit location: outside a space an edit becomes `a::v`, inside a
+space it becomes the bare `v`. This applies to completion inserts, text edits,
+code actions, formatting and rename.
+
+## Editor integrations
+
+- **Vim syntax and folding** (`vim/`): install with vim-plug:
+  `Plug 'Rubynovaya-Zvezda/okular-util-compiler', { 'rtp': 'vim' }`.
+  Highlights `space`, `x::y::item` and `::item`, and folds `space name { ... }`
+  blocks. See `vim/README.md`.
+- **coc.nvim** (`coc-okc/`): run `npm publish` in that directory, then
+  `:CocInstall coc-okc`. It starts `okc lsp` for C buffers. See
+  `coc-okc/README.md` for settings and local installation.
+
+## System install
+
+Put `okc` on `PATH` so editor configs never need project-specific paths:
+
+```sh
+bazel run //:install_okc -- --prefix=/usr/local
+# or: make install PREFIX=/usr/local
+```
+
+Then use `"okc.command": "okc"` in `coc-settings.json`. If you need a custom
+`bindir`, pass `--bindir=/path/to/bin` to the Bazel target. clangd finds
+`compile_commands.json` by walking up from the source file, so
+`okc.args` can usually stay empty.
+
+No allowlist or data files: copy `okc` to a machine with clang and clangd and it works.

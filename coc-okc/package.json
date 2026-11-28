@@ -1,0 +1,83 @@
+{
+  "name": "coc-okc",
+  "version": "0.1.2",
+  "description": "coc.nvim integration for okc: clangd with space/:: namespace rewriting",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "coc": ">=0.0.80",
+    "node": ">=16"
+  },
+  "activationEvents": [
+    "onLanguage:c",
+    "onCommand:okc.restart"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "okc",
+      "properties": {
+        "okc.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the okc language server for C buffers."
+        },
+        "okc.command": {
+          "type": "string",
+          "default": "okc",
+          "description": "Path to the okc executable (must be on PATH by default)."
+        },
+        "okc.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments passed to clangd by okc lsp."
+        },
+        "okc.clangd": {
+          "type": "string",
+          "default": "",
+          "description": "Underlying clangd executable; sets SPACE_CLANGD."
+        },
+        "okc.rootPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".git",
+            "compile_commands.json"
+          ],
+          "description": "Patterns used to find the project root."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "okc.restart",
+        "title": "okc: Restart language server"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node test/basic.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "coc.nvim",
+    "clangd",
+    "okc",
+    "c23",
+    "namespace",
+    "lsp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rubynovaya-Zvezda/okular-util-compiler.git",
+    "directory": "coc-okc"
+  },
+  "license": "MIT"
+}

@@ -1,4 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_toolchain")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -29,20 +30,51 @@ cc_library(
     copts = COPTS,
 )
 
+cc_library(
+    name = "space_lsp",
+    srcs = ["space-lsp.c"],
+    hdrs = ["space-lsp.h"],
+    deps = [":space_rewrite"],
+    copts = COPTS,
+)
+
 cc_binary(
     name = "okc",
     srcs = ["okc.c"],
     deps = [
         ":space_cc",
+        ":space_lsp",
         ":space_transform",
     ],
     copts = COPTS,
 )
 
+sh_binary(
+    name = "install_okc",
+    srcs = ["install-okc.sh"],
+    data = [":okc"],
+)
+
+filegroup(
+    name = "vim_plugin",
+    srcs = glob(["vim/**"], exclude = ["**/node_modules/**"]),
+)
+
+filegroup(
+    name = "coc_okc",
+    srcs = glob(["coc-okc/**"], exclude = ["**/node_modules/**"]),
+)
+
 sh_test(
     name = "hook_tests",
     srcs = ["tests/run.sh"],
-    data = [":okc"],
+    data = [
+        ":okc",
+        ":vim_plugin",
+        ":coc_okc",
+        "install-okc.sh",
+        "readme.md",
+    ],
 )
 
 LOCAL = "@local_config_cc//"
