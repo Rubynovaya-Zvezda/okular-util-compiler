@@ -2,12 +2,26 @@
 
 Bazel module with a C23 namespace hook:
 
-- `space z { ... }` prefixes declarations in the block with `z_`;
-- `z::item` → `z_item`, and `z::item.member` → `z_item_member`, both inside and
-  outside `space` blocks.
-- `::item` → `item` (the global scope), also inside `space` blocks.
-- Parameters of function definitions are not prefixed, but globals declared in
-  the space are (both at their declaration and at their uses in the function).
+- `space z { ... }` prefixes declarations in the block with `z_`; blocks may
+  nest: `space x { space y { int v; } }` → `int x_y_v;`;
+- `z::item` → `z_item`, `x::y::item` → `x_y_item`, both inside and outside
+  `space` blocks; inside a space, chains resolve relative to the innermost
+  declaring space (`y::v` → `x_y_v` in `x/y`).
+- `x::y::item.member` → `x_y_item.member` for struct/union members, or
+  `x_y_item_member` for enum constants.
+- `::item` → `item` (the global scope), also inside `space` blocks; a leading
+  `::` forces the absolute name.
+- Parameters of function definitions are not prefixed (outer parameters stay
+  visible inside nested spaces), but globals declared in the space are (both at
+  their declaration and at their uses in the function). Control-flow blocks
+  (`if`, `for`, `while`, …) are not treated as function definitions.
+- Inner declarations shadow outer ones. Macro names are resolved before any
+  namespace rewriting, so bare uses stay untouched regardless of the scope in
+  which the macro was defined.
+- All preprocessor directives are copied verbatim. Macro names are recorded
+  only so their uses are left untouched — macros are never prefixed or
+  otherwise rewritten, inside or outside spaces. Names from `-D`/`-U` flags
+  are honoured too; macros from headers are still unknown to the text pass.
 
 Struct/union members keep their names (they are already isolated by the struct).
 Enum constants are prefixed with their owner, e.g. `space x { enum { one, two } c; }`
@@ -37,4 +51,3 @@ Build: `bazel build //...` · Test: `bazel test //...`
   ```
 
 No allowlist or data files: copy `okc` to a machine with clang and it works.
-Full usage guide: `usage.md`.

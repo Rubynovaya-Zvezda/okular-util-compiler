@@ -17,6 +17,8 @@ typedef struct {
     size_t ndirs;
     size_t capdirs;
     size_t errors;
+    char **defines;
+    size_t ndefines, capdefines;
 } HookCtx;
 
 typedef struct {
@@ -118,6 +120,38 @@ static void add_dir(HookCtx *h, char *dir) {
     h->dirs[h->ndirs++] = dir;
 }
 
+static size_t macro_name_len(const char *v) {
+    size_t n = 0;
+    while (v[n] && v[n] != '=' && v[n] != '(') ++n;
+    return n;
+}
+static void add_define(HookCtx *h, const char *name, size_t n) {
+    if (!n) return;
+    char *copy = strndup(name, n);
+    if (!copy) return;
+    for (size_t i = 0; i < h->ndefines; ++i) {
+        if (!strcmp(h->defines[i], copy)) { free(copy); return; }
+    }
+    if (h->ndefines == h->capdefines) {
+        size_t c = h->capdefines ? h->capdefines * 2 : 8;
+        char **p = realloc(h->defines, c * sizeof *p);
+        if (!p) { free(copy); return; }
+        h->defines = p; h->capdefines = c;
+    }
+    h->defines[h->ndefines++] = copy;
+}
+/* Collect -D/-U names before rewriting so argument order does not matter. */
+static void collect_defines(HookCtx *h, int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        const char *a = argv[i];
+        if ((strcmp(a, "-D") == 0 || strcmp(a, "-U") == 0) && i + 1 < argc) {
+            const char *v = argv[++i];
+            add_define(h, v, macro_name_len(v));
+        } else if (a[0] == '-' && (a[1] == 'D' || a[1] == 'U') && a[2]) {
+            add_define(h, a + 2, macro_name_len(a + 2));
+        }
+    }
+}
 static char *read_all(const char *path, size_t *len) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -195,6 +229,8 @@ static char *make_temp_copy(const char *orig, HookCtx *h, char **orig_dir) {
     }
     space_options opts = {0};
     opts.filename = orig;
+    opts.defines = (const char *const *)h->defines;
+    opts.ndefines = h->ndefines;
     size_t out_len = 0;
     char *out = space_rewrite(text, len, &opts, print_diag, h, &out_len);
     free(text);
@@ -288,6 +324,8 @@ static void cleanup(HookCtx *h, Mapping *maps, size_t nmaps) {
         free(h->dirs[i]);
     }
     free(h->dirs);
+    for (size_t i = 0; i < h->ndefines; ++i) free(h->defines[i]);
+    free(h->defines);
 }
 
 int space_cc_main(int argc, char **argv) {
@@ -296,6 +334,7 @@ int space_cc_main(int argc, char **argv) {
 
     HookCtx h;
     memset(&h, 0, sizeof h);
+    collect_defines(&h, argc, argv);
 
     size_t maxargs = (size_t)argc * 3 + 16;
     char **args = calloc(maxargs, sizeof *args);

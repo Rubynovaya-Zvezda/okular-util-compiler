@@ -8,14 +8,15 @@ extern "C" {
 #endif
 
 /* Diagnostic callback. `id` is one of:
- *   space-guard-overlap, space-guard-mismatch, space-guard-unclosed,
- *   space-guard-unexpected-end, space-bad-form
+ *   space-unclosed, space-bad-form
  */
 typedef void (*space_diag_fn)(void *ctx, const char *file, unsigned line,
                               unsigned col, const char *id, const char *msg);
 
 typedef struct {
     const char *filename;  /* used in diagnostics */
+    const char *const *defines; /* macro names from -D/-U, as written */
+    size_t ndefines;
 } space_options;
 
 /* Returns a malloc'd, NUL-terminated rewritten buffer (caller frees), or NULL

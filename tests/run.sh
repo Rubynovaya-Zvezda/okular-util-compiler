@@ -149,25 +149,449 @@ grep -q 'return printf("x");' "$tmp/lib.out.c" || fail "library name outside"
 grep -q 'return a_printf("x");' "$tmp/lib.out.c" || fail "library name inside"
 pass "library names"
 cat > "$tmp/nested.c" <<'E7'
-space a {
- space b {
- int x;
+space x {
+ int a;
+ space y {
+  int v;
+  struct { int m; } s;
+  enum { one, two } e;
+  int f(int p) { return y::v + p + one; }
+  space z {
+   int deep;
+  }
  }
 }
+x::y::v=5;
+x::y::e enum_var = one;
+enum_var = two;
+x::y::z::deep = 7;
+int g(void) { return ::x::y::v + x::y::v; }
 E7
-check_error "nested space" "space-nested" "$tmp/nested.c"
+./okc prepare -o "$tmp/nested.out.c" "$tmp/nested.c"
+grep -q '^ int x_a;' "$tmp/nested.out.c" || fail "outer space variable"
+grep -q '^  int x_y_v;' "$tmp/nested.out.c" || fail "nested variable"
+grep -q 'struct { int m; } x_y_s;' "$tmp/nested.out.c" || fail "nested struct"
+grep -q 'enum { x_y_e_one, x_y_e_two } x_y_e;' "$tmp/nested.out.c" || fail "nested enum"
+grep -q '^  int x_y_f(int p) { return x_y_v + p + x_y_e_one; }' "$tmp/nested.out.c" || fail "nested function"
+grep -q '^   int x_y_z_deep;' "$tmp/nested.out.c" || fail "deep nesting"
+grep -q '^x_y_v=5;' "$tmp/nested.out.c" || fail "qualified chain assignment"
+grep -q '^x_y_e enum_var = x_y_e_one;' "$tmp/nested.out.c" || fail "qualified chain type"
+grep -q '^enum_var = x_y_e_two;' "$tmp/nested.out.c" || fail "qualified chain enum"
+grep -q '^x_y_z_deep = 7;' "$tmp/nested.out.c" || fail "deep qualified chain"
+grep -q '^int g(void) { return x_y_v + x_y_v; }' "$tmp/nested.out.c" || fail "global qualified chain"
+[ "$(wc -l < "$tmp/nested.c")" = "$(wc -l < "$tmp/nested.out.c")" ] || fail "line count with nesting"
+pass "nested spaces and qualified chains"
+cat > "$tmp/fnscope.c" <<'E15'
+space x {
+ int outer(int p) {
+  space y {
+   int inner(int q) { return q + p; }
+  }
+  return p;
+ }
+}
+E15
+./okc prepare -o "$tmp/fnscope.out.c" "$tmp/fnscope.c"
+grep -q '^ int x_outer(int p) {' "$tmp/fnscope.out.c" || fail "outer parameter"
+grep -Fq 'int x_y_inner(int q) { return q + p; }' "$tmp/fnscope.out.c" || fail "outer parameter in nested function"
+grep -Fq '  return p;' "$tmp/fnscope.out.c" || fail "outer parameter after nested space"
+pass "nested parameter scopes"
+cat > "$tmp/pp.c" <<'E16'
+#define OUT 9
+#define _UNDER 2
+#define ADD(a,b) ((a)+(b))
+space x {
+#include <stddef.h>
+#define VALUE 1
+ space y {
+  int v = OUT + _UNDER + ADD(1,2) + VALUE;
+ }
+#undef VALUE
+}
+E16
+./okc prepare -o "$tmp/pp.out.c" "$tmp/pp.c"
+grep -q '^#define OUT 9' "$tmp/pp.out.c" || fail "outer macro definition"
+grep -q '^#define _UNDER 2' "$tmp/pp.out.c" || fail "underscore macro definition"
+grep -q '^#define ADD(a,b) ((a)+(b))' "$tmp/pp.out.c" || fail "function-like macro definition"
+grep -q '^#include <stddef.h>' "$tmp/pp.out.c" || fail "include rewritten"
+grep -q '^#define VALUE 1' "$tmp/pp.out.c" || fail "space macro definition"
+grep -q '^#undef VALUE' "$tmp/pp.out.c" || fail "macro undef"
+grep -q '^  int x_y_v = OUT + _UNDER + ADD(1,2) + VALUE;' "$tmp/pp.out.c" || fail "macro uses rewritten"
+[ "$(wc -l < "$tmp/pp.c")" = "$(wc -l < "$tmp/pp.out.c")" ] || fail "line count with directives"
+pass "macros are ignored by the rewriter"
+cat > "$tmp/enumscope.c" <<'E17'
+space x {
+ enum { one } a;
+ space y {
+  enum { one } b;
+  int v = one;
+ }
+}
+E17
+./okc prepare -o "$tmp/enumscope.out.c" "$tmp/enumscope.c"
+grep -q 'enum { x_a_one } x_a;' "$tmp/enumscope.out.c" || fail "outer enum constant"
+grep -q 'enum { x_y_b_one } x_y_b;' "$tmp/enumscope.out.c" || fail "inner enum constant"
+grep -Fq 'int x_y_v = x_y_b_one;' "$tmp/enumscope.out.c" || fail "inner constant resolution"
+pass "scoped enum constants"
+cat > "$tmp/tagged.c" <<'E18'
+space x { struct S { int m; } s; enum E { one } e; }
+int v = x::S.m + x::E::one;
+E18
+./okc prepare -o "$tmp/tagged.out.c" "$tmp/tagged.c"
+grep -q 'struct x_S { int m; } x_s;' "$tmp/tagged.out.c" || fail "tagged struct"
+grep -q 'enum x_E { x_E_one } x_e;' "$tmp/tagged.out.c" || fail "tagged enum"
+grep -q '^int v = x_S.m + x_E_one;' "$tmp/tagged.out.c" || fail "qualified members"
+pass "tagged types and qualified members"
+cat > "$tmp/multiline.c" <<'E19'
+space
+ x
+{
+ int v;
+}
+E19
+./okc prepare -o "$tmp/multiline.out.c" "$tmp/multiline.c"
+grep -q '^ int x_v;' "$tmp/multiline.out.c" || fail "multi-line space opener"
+[ "$(wc -l < "$tmp/multiline.c")" = "$(wc -l < "$tmp/multiline.out.c")" ] || fail "line count with multi-line opener"
+pass "multi-line space opener"
+cat > "$tmp/shadow.c" <<'E20'
+space x {
+ int v = 1;
+ space y {
+  int v = 2;
+  int f(void) { return v; }
+ }
+}
+E20
+./okc prepare -o "$tmp/shadow.out.c" "$tmp/shadow.c"
+grep -q '^ int x_v = 1;' "$tmp/shadow.out.c" || fail "outer declaration"
+grep -q '^  int x_y_v = 2;' "$tmp/shadow.out.c" || fail "inner declaration shadowing"
+grep -q '^  int x_y_f(void) { return x_y_v; }' "$tmp/shadow.out.c" || fail "inner declaration use"
+pass "inner declarations shadow outer names"
+cat > "$tmp/control.c" <<'E21'
+space s {
+ int v;
+ int f(void) {
+  if (v) { return v; }
+  for (int i = 0; i < v; ++i) { v = v + i; }
+  while (v) { v = v - 1; }
+  return v;
+ }
+}
+E21
+./okc prepare -o "$tmp/control.out.c" "$tmp/control.c"
+grep -Fq 'if (s_v) { return s_v; }' "$tmp/control.out.c" || fail "if condition"
+grep -Fq 'for (int s_i = 0; s_i < s_v; ++s_i) { s_v = s_v + s_i; }' "$tmp/control.out.c" || fail "for condition"
+grep -Fq 'while (s_v) { s_v = s_v - 1; }' "$tmp/control.out.c" || fail "while condition"
+pass "control-flow blocks are not functions"
+cat > "$tmp/expect.c" <<'E22'
+space x { enum { a, b } e; }
+x::e v = a;
+int f(void) { int b = 3; return b; }
+E22
+./okc prepare -o "$tmp/expect.out.c" "$tmp/expect.c"
+grep -q '^x_e v = x_e_a;' "$tmp/expect.out.c" || fail "qualified enum declaration"
+grep -q '^int f(void) { int b = 3; return b; }' "$tmp/expect.out.c" || fail "enum expect leak"
+pass "enum state does not leak past statements"
+cat > "$tmp/badspace.c" <<'E23'
+space { int v; }
+E23
+check_error "missing space name" "space-bad-form" "$tmp/badspace.c"
+cat > "$tmp/brace.c" <<'E24'
+space x { struct { char s[sizeof("}")]; int n; } v; }
+E24
+./okc prepare -o "$tmp/brace.out.c" "$tmp/brace.c"
+grep -Fq 'struct { char s[sizeof("}")]; int n; } x_v;' "$tmp/brace.out.c" || fail "brace in string"
+pass "braces inside strings are ignored"
+cat > "$tmp/qualws.c" <<'E25'
+space s { int x_y; }
+x /*c*/ :: y = 1;
+space t { int v; }
+t ::
+v = 2;
+E25
+./okc prepare -o "$tmp/qualws.out.c" "$tmp/qualws.c"
+grep -q '^x_y/\*c\*/ = 1;' "$tmp/qualws.out.c" || fail "comment before qualifiers"
+grep -q '^t_v = 2;' "$tmp/qualws.out.c" || fail "newline after qualifiers"
+[ "$(wc -l < "$tmp/qualws.c")" = "$(wc -l < "$tmp/qualws.out.c")" ] || fail "line count with qualifiers"
+pass "qualified names across comments and newlines"
+cat > "$tmp/comments-cross.c" <<'E28'
+space s { int x_y; }
+x /* a
+ b */ :: y = 1;
+E28
+./okc prepare -o "$tmp/comments-cross.out.c" "$tmp/comments-cross.c"
+grep -q '^x_y/\* a$' "$tmp/comments-cross.out.c" || fail "multiline comment before qualifiers"
+grep -q '^ b \*/ = 1;' "$tmp/comments-cross.out.c" || fail "multiline comment tail"
+[ "$(wc -l < "$tmp/comments-cross.c")" = "$(wc -l < "$tmp/comments-cross.out.c")" ] || fail "line count with multiline comment"
+pass "multiline comments crossed by qualifiers"
+cat > "$tmp/comma.c" <<'E29'
+space x { enum { one, b, two } e; }
+x::e a = one, b = b, c = two;
+x::e v = { one, two };
+E29
+./okc prepare -o "$tmp/comma.out.c" "$tmp/comma.c"
+grep -q '^x_e a = x_e_one, b = b, c = x_e_two;' "$tmp/comma.out.c" || fail "comma declarator"
+grep -q '^x_e v = { x_e_one, x_e_two };' "$tmp/comma.out.c" || fail "initializer constants"
+pass "comma declarators do not consume enum constants"
+cat > "$tmp/ppedge.c" <<'E26'
+space x {
+#define /*c*/ V 1
+#define \
+ U 2
+int v = V + U;
+}
+E26
+./okc prepare -o "$tmp/ppedge.out.c" "$tmp/ppedge.c"
+grep -q '^#define /\*c\*/ V 1' "$tmp/ppedge.out.c" || fail "macro after comment"
+grep -q '^int x_v = V + U;' "$tmp/ppedge.out.c" || fail "continued macro name"
+pass "macro names after comments and continuations"
+cat > "$tmp/cmddef.c" <<'E27'
+space x { int v = FROM_CMD + TWICE(2); }
+E27
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -DFROM_CMD=3 '-DTWICE(n)=((n)*2)' -fsyntax-only "$tmp/cmddef.c"
+pass "command-line macros"
+cat > "$tmp/nested-unclosed.c" <<'E13'
+space x {
+ space y {
+ int v;
+}
+E13
+check_error "unclosed nested space" "space-unclosed" "$tmp/nested-unclosed.c"
 cat > "$tmp/unclosed.c" <<'E8'
 space a {
 int x;
 E8
 check_error "unclosed space" "space-unclosed" "$tmp/unclosed.c"
 cat > "$tmp/badqual.c" <<'E9'
-int x = a::b::c;
+int x = a::b::;
 E9
-check_error "long qualified name" "space-bad-form" "$tmp/badqual.c"
+check_error "malformed qualified name" "space-bad-form" "$tmp/badqual.c"
+cat > "$tmp/badmember.c" <<'E14'
+int y = a::b.c.d;
+E14
+check_error "long qualified member" "space-bad-form" "$tmp/badmember.c"
 if SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -fsyntax-only "$tmp/unclosed.c" >"$tmp/stdout" 2>"$tmp/stderr"; then
     fail "wrapper accepted unclosed space"
 fi
 grep -q 'space-unclosed' "$tmp/stderr" || fail "wrapper diagnostic"
 pass "wrapper rejects bad input"
+cat > "$tmp/leadcomment.c" <<'E30'
+space x { int v; }
+int q = :: /*c*/ v;
+E30
+./okc prepare -o "$tmp/leadcomment.out.c" "$tmp/leadcomment.c"
+grep -q '^int q = v/\*c\*/;' "$tmp/leadcomment.out.c" || fail "comment after leading ::"
+[ "$(wc -l < "$tmp/leadcomment.c")" = "$(wc -l < "$tmp/leadcomment.out.c")" ] || fail "line count after leading ::"
+pass "comments after leading :: are preserved"
+cat > "$tmp/enumexpr.c" <<'E31'
+space x { enum E { one, two = one + 1, three = x::E::one } e; }
+int q = two + three;
+E31
+./okc prepare -o "$tmp/enumexpr.out.c" "$tmp/enumexpr.c"
+grep -q 'enum x_E { x_E_one, x_E_two = x_E_one + 1, x_E_three = x_E_one } x_e;' "$tmp/enumexpr.out.c" || fail "enum initializer expressions"
+grep -q '^int q = x_E_two + x_E_three;' "$tmp/enumexpr.out.c" || fail "bare enum uses outside space"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/enumexpr.c"
+pass "enum initializer expressions and constants"
+cat > "$tmp/enumcomments.c" <<'E32'
+space x { enum { one, /* one */ two, // one
+ three } e; }
+E32
+./okc prepare -o "$tmp/enumcomments.out.c" "$tmp/enumcomments.c"
+grep -Fq 'enum { x_e_one, /* one */ x_e_two, // one' "$tmp/enumcomments.out.c" || fail "comments in enum body"
+grep -Fq ' x_e_three } x_e;' "$tmp/enumcomments.out.c" || fail "enumerator after line comment"
+[ "$(wc -l < "$tmp/enumcomments.c")" = "$(wc -l < "$tmp/enumcomments.out.c")" ] || fail "line count in enum comments"
+pass "comments inside enum bodies are not code"
+cat > "$tmp/structbody.c" <<'E33'
+space x {
+ struct S /* { */ {
+  enum { one } e;
+  struct T { int m; } t;
+ } s;
+}
+E33
+./okc prepare -o "$tmp/structbody.out.c" "$tmp/structbody.c"
+grep -Fq 'struct x_S /* { */ {' "$tmp/structbody.out.c" || fail "brace in struct comment"
+grep -Fq 'enum { x_e_one } e;' "$tmp/structbody.out.c" || fail "enum nested in struct"
+grep -Fq 'struct x_T { int m; } t;' "$tmp/structbody.out.c" || fail "tag nested in struct"
+grep -Fq '} x_s;' "$tmp/structbody.out.c" || fail "struct declarator"
+[ "$(wc -l < "$tmp/structbody.c")" = "$(wc -l < "$tmp/structbody.out.c")" ] || fail "line count in struct body"
+pass "struct bodies handle comments and nested declarations"
+cat > "$tmp/ppcomments.c" <<'E34'
+# /*c*/ define V 1
+/*d*/ #define W 2
+space x { int v = V + W; }
+E34
+./okc prepare -o "$tmp/ppcomments.out.c" "$tmp/ppcomments.c"
+grep -q '^# /\*c\*/ define V 1' "$tmp/ppcomments.out.c" || fail "comment after #"
+grep -q '^/\*d\*/ #define W 2' "$tmp/ppcomments.out.c" || fail "comment before #"
+grep -q 'int x_v = V + W;' "$tmp/ppcomments.out.c" || fail "macro names after directive comments"
+pass "directives with comments are recognized"
+cat > "$tmp/bareenum.c" <<'E35'
+enum { one } c;
+int v = one;
+E35
+./okc prepare -o "$tmp/bareenum.out.c" "$tmp/bareenum.c"
+grep -q '^enum { c_one } c;' "$tmp/bareenum.out.c" || fail "outside enum declaration"
+grep -q '^int v = c_one;' "$tmp/bareenum.out.c" || fail "bare enum constant outside space"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/bareenum.c"
+pass "bare enum constants outside spaces"
+cat > "$tmp/nestedprefix.c" <<'E36'
+space x { int x_v = 1; space y { int x_v = 2; int z = x_v; } }
+E36
+./okc prepare -o "$tmp/nestedprefix.out.c" "$tmp/nestedprefix.c"
+grep -q 'int x_v = 1;' "$tmp/nestedprefix.out.c" || fail "outer prefixed declaration"
+grep -q 'int x_y_x_v = 2;' "$tmp/nestedprefix.out.c" || fail "inner declaration composes prefix"
+grep -q 'int x_y_z = x_v;' "$tmp/nestedprefix.out.c" || fail "outer-prefixed use stays unchanged"
+pass "nested declarations compose outer prefixes"
+: > "$tmp/empty.c"
+./okc prepare -o "$tmp/empty.out.c" "$tmp/empty.c"
+[ -f "$tmp/empty.out.c" ] || fail "empty input produced no output file"
+[ ! -s "$tmp/empty.out.c" ] || fail "empty input produced non-empty output"
+pass "empty input is not an out-of-memory error"
+cat > "$tmp/fixedenum.c" <<'E38'
+space x { enum E : int { one, two } e; }
+int q = x::E::one;
+E38
+./okc prepare -o "$tmp/fixedenum.out.c" "$tmp/fixedenum.c"
+grep -q 'enum x_E : int { x_E_one, x_E_two } x_e;' "$tmp/fixedenum.out.c" || fail "fixed underlying enum"
+grep -q '^int q = x_E_one;' "$tmp/fixedenum.out.c" || fail "fixed enum qualified constant"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/fixedenum.c"
+pass "C23 fixed underlying enums"
+cat > "$tmp/qualcomment.c" <<'E39'
+space s { int x_y; }
+x // c
+ :: y = 1;
+E39
+./okc prepare -o "$tmp/qualcomment.out.c" "$tmp/qualcomment.c"
+grep -q '^x_y // c$' "$tmp/qualcomment.out.c" || fail "line comment in qualified name"
+grep -Eq '^[[:space:]]*= 1;' "$tmp/qualcomment.out.c" || fail "statement commented out by qualifier"
+[ "$(wc -l < "$tmp/qualcomment.c")" = "$(wc -l < "$tmp/qualcomment.out.c")" ] || fail "line count with qualifier comment"
+pass "line comments in qualified names do not comment out code"
+cat > "$tmp/typedshadow.c" <<'E40'
+space a {
+ enum { c = 5 } e1;
+ a::e1 v = c;
+ space b {
+  enum { c = 9 } e2;
+  int f(void) {
+   b::e2 v = c;
+   return v == c ? 0 : 1;
+  }
+ }
+}
+E40
+./okc prepare -o "$tmp/typedshadow.out.c" "$tmp/typedshadow.c"
+grep -Fq 'return a_b_v == a_b_e2_c ? 0 : 1;' "$tmp/typedshadow.out.c" || fail "shadowed enum type"
+pass "shadowed declarations resolve to the inner type"
+cat > "$tmp/enumdeclcomment.c" <<'E41'
+space x { enum { one } /*c*/ e; }
+E41
+./okc prepare -o "$tmp/enumdeclcomment.out.c" "$tmp/enumdeclcomment.c"
+grep -Fq 'enum { x_e_one } /*c*/ x_e;' "$tmp/enumdeclcomment.out.c" || fail "comment before enum declarator"
+[ "$(wc -l < "$tmp/enumdeclcomment.c")" = "$(wc -l < "$tmp/enumdeclcomment.out.c")" ] || fail "line count with enum declarator comment"
+pass "comments before enum declarators"
+cat > "$tmp/initbraces.c" <<'E42'
+space x { struct S s = { 1 }, t = { 2 }; }
+E42
+./okc prepare -o "$tmp/initbraces.out.c" "$tmp/initbraces.c"
+grep -Fq 'struct x_S x_s = { 1 }, x_t = { 2 };' "$tmp/initbraces.out.c" || fail "initializer braces as type body"
+pass "initializer braces are not type bodies"
+cat > "$tmp/qualifiedsizeof.c" <<'E43'
+space x { enum E { one } e; int q = sizeof(x::E) + one; }
+E43
+./okc prepare -o "$tmp/qualifiedsizeof.out.c" "$tmp/qualifiedsizeof.c"
+grep -Fq 'int x_q = sizeof(x_E) + x_E_one;' "$tmp/qualifiedsizeof.out.c" || fail "qualified type in expression"
+pass "qualified type uses do not leak declarator state"
+cat > "$tmp/enumreturn.c" <<'E44'
+space x { enum E { one } e; enum E f(void) { return one; } }
+E44
+./okc prepare -o "$tmp/enumreturn.out.c" "$tmp/enumreturn.c"
+grep -Fq 'enum x_E { x_E_one } x_e; enum x_E x_f(void) { return x_E_one; }' "$tmp/enumreturn.out.c" || fail "enum return type body"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/enumreturn.c"
+pass "type references in signatures do not swallow bodies"
+cat > "$tmp/parammembers.c" <<'E45'
+space x { struct S { int m; } s; int f(struct S *p) { return p->m + s.m; } }
+E45
+./okc prepare -o "$tmp/parammembers.out.c" "$tmp/parammembers.c"
+grep -Fq 'int x_f(struct x_S *p) { return p->m + x_s.m; }' "$tmp/parammembers.out.c" || fail "member access in function body"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/parammembers.c"
+pass "member access after . and -> is not prefixed"
+cat > "$tmp/qualifiedmember.c" <<'E46'
+space x { struct S { int m; }; int f(void) { struct x::S *p = 0; return p->m; } }
+E46
+./okc prepare -o "$tmp/qualifiedmember.out.c" "$tmp/qualifiedmember.c"
+grep -Fq 'struct x_S *x_p = 0; return x_p->m;' "$tmp/qualifiedmember.out.c" || fail "qualified type member access"
+pass "qualified type declarations keep member names"
+cat > "$tmp/prototypes.c" <<'E47'
+space x { int f(int a, char *b); typedef int (*F)(int cb); }
+E47
+./okc prepare -o "$tmp/prototypes.out.c" "$tmp/prototypes.c"
+grep -Fq 'int x_f(int a, char *b); typedef int (*x_F)(int cb);' "$tmp/prototypes.out.c" || fail "prototype parameters"
+SPACE_HOOK_ROOTS="$tmp" ./okc compile -std=c23 -Wall -Wextra -fsyntax-only "$tmp/prototypes.c"
+pass "prototypes and function pointer parameters stay unprefixed"
+{
+    printf 'space x { enum { '
+    i=1
+    while [ "$i" -le 80 ]; do
+        [ "$i" -gt 1 ] && printf ', '
+        printf 'c%d' "$i"
+        i=$((i + 1))
+    done
+    printf ' } e; int q = c70 + c80; }\n'
+} > "$tmp/manyconsts.c"
+./okc prepare -o "$tmp/manyconsts.out.c" "$tmp/manyconsts.c"
+grep -Fq 'x_e_c80 } x_e;' "$tmp/manyconsts.out.c" || fail "enum constants beyond fixed cap"
+grep -Fq 'int x_q = x_e_c70 + x_e_c80;' "$tmp/manyconsts.out.c" || fail "uses of constants beyond fixed cap"
+pass "enum constant tables grow past fixed caps"
+{
+    printf 'space x {\n'
+    i=1
+    while [ "$i" -le 300 ]; do
+        printf ' int v%d;\n' "$i"
+        i=$((i + 1))
+    done
+    printf ' int q = v300;\n}\n'
+} > "$tmp/manyvars.c"
+./okc prepare -o "$tmp/manyvars.out.c" "$tmp/manyvars.c"
+grep -Fq 'int x_v300;' "$tmp/manyvars.out.c" || fail "declarations beyond fixed cap"
+grep -Fq 'int x_q = x_v300;' "$tmp/manyvars.out.c" || fail "uses beyond fixed cap"
+pass "declaration tables grow past fixed caps"
+{
+    i=0
+    while [ "$i" -lt 70 ]; do
+        printf 'space a%d {\n' "$i"
+        i=$((i + 1))
+    done
+    printf ' int v;\n'
+    i=69
+    while [ "$i" -ge 0 ]; do
+        printf '}\n'
+        i=$((i - 1))
+    done
+    printf 'int q = '
+    i=0
+    while [ "$i" -lt 70 ]; do
+        printf 'a%d::' "$i"
+        i=$((i + 1))
+    done
+    printf 'v;\n'
+} > "$tmp/deepqual.c"
+./okc prepare -o "$tmp/deepqual.out.c" "$tmp/deepqual.c"
+expected=
+i=0
+while [ "$i" -lt 70 ]; do
+    [ -n "$expected" ] && expected="${expected}_"
+    expected="${expected}a$i"
+    i=$((i + 1))
+done
+expected="${expected}_v"
+grep -Fq "int $expected;" "$tmp/deepqual.out.c" || fail "deep qualified declaration"
+grep -Fq "int q = $expected;" "$tmp/deepqual.out.c" || fail "deep qualified use"
+pass "qualified chains grow past fixed caps"
+doc=readme.md
+[ -f "$doc" ] || doc=../readme.md
+if grep -q 'usage\.md' "$doc" && [ ! -e "$(dirname "$doc")/usage.md" ]; then
+    fail "stale usage.md reference"
+fi
+pass "no stale documentation link"
 echo "all hook tests passed"
