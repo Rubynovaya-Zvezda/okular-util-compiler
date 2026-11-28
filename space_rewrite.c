@@ -22,6 +22,8 @@ typedef struct {
     unsigned line, col;
     int in_space, depth;
     char *prefix, *pending, *expect;
+    char *args[MAXS]; size_t nargs;
+    int args_active, arg_depth;
     Type types[MAXS]; size_t ntypes;
     Pair consts[MAXS]; size_t nconsts;
     Pair vars[MAXS]; size_t nvars;
@@ -76,6 +78,138 @@ static char *find_pair(Pair *p, size_t n, const char *name, size_t nl) {
 static void add_pair(Pair *p, size_t *n, const char *a, size_t al, const char *b) {
     if (*n < MAXS) { p[*n].name = dupn(a, al); p[*n].mapped = dupn(b, strlen(b)); ++*n; }
 }
+static char *find_arg(Sc *s, const char *name, size_t n) {
+    for (size_t i = 0; i < s->nargs; ++i)
+        if (strlen(s->args[i]) == n && !memcmp(s->args[i], name, n)) return s->args[i];
+    return 0;
+}
+static void clear_args(Sc *s) {
+    for (size_t i = 0; i < s->nargs; ++i) free(s->args[i]);
+    s->nargs = 0; s->args_active = 0;
+}
+static void add_arg(Sc *s, const char *name, size_t n) {
+    if (s->nargs < MAXS) { s->args[s->nargs++] = dupn(name, n); }
+}
+static int space_comment(const char *x, size_t n, size_t p, size_t *end) {
+    if (p + 1 < n && x[p] == '/' && x[p + 1] == '*') {
+        size_t q = p + 2;
+        while (q + 1 < n && !(x[q] == '*' && x[q + 1] == '/')) ++q;
+        *end = q + 1 < n ? q + 2 : n;
+        return 1;
+    }
+    if (p + 1 < n && x[p] == '/' && x[p + 1] == '/') {
+        size_t q = p;
+        while (q < n && x[q] != '\n') ++q;
+        *end = q;
+        return 1;
+    }
+    return 0;
+}
+static int skip_space_comments(const char *x, size_t n, size_t *p) {
+    for (;;) {
+        hs(x, n, p);
+        if (*p < n && x[*p] == '\n') { ++*p; continue; }
+        size_t end;
+        if (space_comment(x, n, *p, &end)) { *p = end; continue; }
+        return 1;
+    }
+}
+static void skip_literal(const char *x, size_t n, size_t *p) {
+    char q = x[(*p)++];
+    while (*p < n && x[*p] != '\n') {
+        if (x[*p] == '\\' && *p + 1 < n) { *p += 2; continue; }
+        if (x[*p] == q) { ++*p; break; }
+        ++*p;
+    }
+}
+static size_t match_paren(const char *x, size_t n, size_t p) {
+    int d = 0;
+    for (size_t i = p; i < n; ++i) {
+        size_t end;
+        if (space_comment(x, n, i, &end)) { i = end - 1; continue; }
+        if (x[i] == '"' || x[i] == '\'') { skip_literal(x, n, &i); --i; continue; }
+        if (x[i] == '(') ++d;
+        else if (x[i] == ')') { if (--d == 0) return i; }
+    }
+    return n;
+}
+/* Collect the parameter names of one declarator, e.g. `int a, char *b` yields
+ * `a` and `b`. The last non-keyword identifier of each comma-separated part
+ * is the parameter; a `(*name)` group is handled as a function pointer. */
+static void collect_params(Sc *s, size_t open, size_t close) {
+    const char *x = s->src;
+    size_t last = 0, last_end = 0, fp = 0, fp_end = 0;
+    int d = 0;
+    for (size_t i = open + 1; i < close; ++i) {
+        size_t end;
+        if (space_comment(x, close, i, &end)) { i = end - 1; continue; }
+        char c = x[i];
+        if (c == '"' || c == '\'') { skip_literal(x, close, &i); --i; continue; }
+        if (c == '(') {
+            size_t q = i + 1; hs(x, close, &q);
+            if (q < close && x[q] == '*') {
+                ++q; hs(x, close, &q);
+                if (q < close && ids((unsigned char)x[q])) {
+                    size_t e = iend(x, close, q);
+                    size_t r = e; hs(x, close, &r);
+                    if (r < close && x[r] == ')') { fp = q; fp_end = e; }
+                }
+            }
+            ++d; continue;
+        }
+        if (c == '[' || c == '{') { ++d; continue; }
+        if (c == ')' || c == ']' || c == '}') { if (d > 0) --d; continue; }
+        if (c == ',' && d == 0) {
+            if (last) add_arg(s, x + last, last_end - last);
+            else if (fp) add_arg(s, x + fp, fp_end - fp);
+            last = last_end = fp = fp_end = 0;
+            continue;
+        }
+        if (ids((unsigned char)c) && d == 0) {
+            size_t e = iend(x, close, i);
+            if (!kw(x, i, e)) { last = i; last_end = e; }
+            i = e - 1;
+        }
+    }
+    if (last) add_arg(s, x + last, last_end - last);
+    else if (fp) add_arg(s, x + fp, fp_end - fp);
+}
+/* Skip whitespace, comments and C23 `[[attributes]]` (possibly nested). */
+static int skip_attributes(const char *x, size_t n, size_t *p) {
+    for (;;) {
+        if (!skip_space_comments(x, n, p)) return 0;
+        if (*p + 1 >= n || x[*p] != '[' || x[*p + 1] != '[') return 1;
+        int d = 0;
+        size_t q = *p;
+        for (; q < n; ++q) {
+            size_t end;
+            if (space_comment(x, n, q, &end)) { q = end - 1; continue; }
+            if (x[q] == '"' || x[q] == '\'') { skip_literal(x, n, &q); --q; continue; }
+            if (q + 1 < n && x[q] == '[' && x[q + 1] == '[') { ++d; ++q; continue; }
+            if (q + 1 < n && x[q] == ']' && x[q + 1] == ']') {
+                ++q;
+                if (--d == 0) { *p = q + 1; break; }
+            }
+        }
+        if (q >= n) return 0;
+    }
+}
+/* `name(...)` followed by a body `{`: remember its parameters while the
+ * function is rewritten so they stay unprefixed, unlike space-scope globals. */
+static void start_function(Sc *s, size_t after) {
+    const char *x = s->src;
+    size_t q = after;
+    if (!skip_attributes(x, s->len, &q) || q >= s->len || x[q] != '(') return;
+    size_t open = q, close = match_paren(x, s->len, open);
+    if (close >= s->len) return;
+    q = close + 1;
+    if (!skip_attributes(x, s->len, &q) || q >= s->len || x[q] != '{') return;
+    clear_args(s);
+    collect_params(s, open, close);
+    s->args_active = 1;
+    s->arg_depth = s->depth + 1;
+    free(s->pending); s->pending = 0;
+}
 typedef struct { size_t end, na, nb; } Open;
 static int space_open(Sc *s, size_t p, Open *o) {
     const char *x = s->src;
@@ -94,6 +228,9 @@ static int qualified(Sc *s, size_t p, Qual *m) {
     const char *x = s->src;
     m->a1 = p; m->b1 = iend(x, s->len, p);
     if (m->b1 == p) return 0;
+    /* A keyword before `::` is not a qualifier: `return ::x` refers to the
+     * global `x`, not to a member of `return`. */
+    if (kw(x, m->a1, m->b1)) return 0;
     size_t q = m->b1; hs(x, s->len, &q);
     if (q + 1 >= s->len || x[q] != ':' || x[q + 1] != ':') return 0;
     q += 2; hs(x, s->len, &q);
@@ -201,6 +338,11 @@ static void do_qual(Sc *s, size_t p, Qual *m) {
 static void do_ident(Sc *s, size_t p, size_t e) {
     const char *x = s->src;
     size_t n = e - p;
+    if (s->args_active && find_arg(s, x + p, n)) {
+        ap(&s->out, x + p, n);
+        s->pos = e; s->col += (unsigned)n;
+        return;
+    }
     if (s->pending) {
         add_pair(s->vars, &s->nvars, x+p, n, s->pending);
         free(s->expect); s->expect = dupn(s->pending, strlen(s->pending));
@@ -262,6 +404,30 @@ char *space_rewrite(const char *text, size_t len, const space_options *opts,
             }
             copy_span(&s, p, e); continue;
         }
+        /* Attributes are opaque: names inside `[[...]]` are not rewritten. */
+        if (c == '[' && p + 1 < s.len && s.src[p + 1] == '[') {
+            size_t q = p;
+            if (skip_attributes(s.src, s.len, &q) && q > p) { copy_span(&s, p, q); continue; }
+        }
+        /* A leading `::` denotes the global scope. Drop it and resolve the
+         * following name as written, regardless of the surrounding space. */
+        if (c == ':' && p + 1 < s.len && s.src[p + 1] == ':') {
+            size_t q = p + 2;
+            hs(s.src, s.len, &q);
+            if (q < s.len && ids((unsigned char)s.src[q])) {
+                Qual m;
+                s.col += (unsigned)(q - p); s.pos = q;
+                if (qualified(&s, q, &m)) {
+                    do_qual(&s, q, &m);
+                    if (s.in_space) start_function(&s, m.end);
+                } else {
+                    size_t e = iend(s.src, s.len, q);
+                    copy_span(&s, q, e);
+                    if (s.in_space) start_function(&s, e);
+                }
+                continue;
+            }
+        }
         if (ids((unsigned char)c)) {
             size_t e = iend(s.src, s.len, p);
             Open o;
@@ -284,11 +450,17 @@ char *space_rewrite(const char *text, size_t len, const space_options *opts,
                 do_enum(&s, p); continue;
             }
             Qual m;
-            if (qualified(&s, p, &m)) { do_qual(&s, p, &m); continue; }
+            if (qualified(&s, p, &m)) {
+                do_qual(&s, p, &m);
+                if (s.in_space) start_function(&s, m.end);
+                continue;
+            }
+            if (s.in_space) start_function(&s, e);
             do_ident(&s, p, e); continue;
         }
         if (c == '{' && s.in_space) { ++s.depth; ac(&s.out, c); ++s.pos; ++s.col; continue; }
         if (c == '}' && s.in_space) {
+            if (s.args_active && s.depth == s.arg_depth) clear_args(&s);
             if (s.depth > 0) { --s.depth; ac(&s.out, c); ++s.pos; ++s.col; continue; }
             ac(&s.out, ' '); ++s.pos; ++s.col;
             s.in_space = 0; free(s.prefix); s.prefix = 0;
@@ -297,6 +469,7 @@ char *space_rewrite(const char *text, size_t len, const space_options *opts,
         ac(&s.out, c); ++s.pos; ++s.col;
     }
     if (s.in_space) report(&s, "space-unclosed", "space block is not closed", s.line, s.col);
+    clear_args(&s);
     free(s.prefix); free(s.pending); free(s.expect);
     for (size_t i = 0; i < s.ntypes; ++i) {
         free(s.types[i].name);

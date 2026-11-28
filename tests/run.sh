@@ -46,6 +46,75 @@ grep -q '^x_c enum_variable = x_c_one;' "$tmp/qual.out.c" || fail "declaration"
 grep -q '^enum_variable = x_c_two;' "$tmp/qual.out.c" || fail "assignment"
 grep -q '^x_c_one$' "$tmp/qual.out.c" || fail "qualified member"
 pass "qualified names and enum resolution"
+cat > "$tmp/scope.c" <<'E10'
+space z {
+ int ::name = 1;
+ int x::name = 2;
+ int f(void) { return ::name + x::name; }
+ int k = :: name;
+}
+int ::outside = 3;
+int y::outside = 4;
+int g(void) { return ::outside + y::outside; }
+int h(void) { return ::y::outside; }
+E10
+./okc prepare -o "$tmp/scope.out.c" "$tmp/scope.c"
+grep -q '^ int name = 1;' "$tmp/scope.out.c" || fail "global name in space"
+grep -q '^ int x_name = 2;' "$tmp/scope.out.c" || fail "qualified name in space"
+grep -q '^ int z_f(void) { return name + x_name; }' "$tmp/scope.out.c" || fail "uses in space"
+grep -q '^ int z_k = name;' "$tmp/scope.out.c" || fail "spaced global qualifier"
+grep -q '^int outside = 3;' "$tmp/scope.out.c" || fail "global name outside"
+grep -q '^int y_outside = 4;' "$tmp/scope.out.c" || fail "qualified name outside"
+grep -q '^int g(void) { return outside + y_outside; }' "$tmp/scope.out.c" || fail "uses outside"
+grep -q '^int h(void) { return y_outside; }' "$tmp/scope.out.c" || fail "global qualified name outside"
+pass "global and qualified name resolution"
+cat > "$tmp/params.c" <<'E11'
+space x {
+ bool v = false;
+ int funct(int a, int b) {
+  v=false;
+  v = 0>a+b;
+  v = !v;
+  return v ;
+ }
+ int other(int a) { return a + v; }
+}
+E11
+./okc prepare -o "$tmp/params.out.c" "$tmp/params.c"
+grep -q '^ bool x_v = false;' "$tmp/params.out.c" || fail "space-scope variable"
+grep -q '^ int x_funct(int a, int b) {' "$tmp/params.out.c" || fail "parameter names in signature"
+grep -q '^  x_v=false;' "$tmp/params.out.c" || fail "global use in function"
+grep -q '^  x_v = 0>a+b;' "$tmp/params.out.c" || fail "parameter uses in function"
+grep -q '^  x_v = !x_v;' "$tmp/params.out.c" || fail "negated global use"
+grep -q '^  return x_v ;' "$tmp/params.out.c" || fail "returned global use"
+grep -q '^ int x_other(int a) { return a + x_v; }' "$tmp/params.out.c" || fail "parameters reset between functions"
+pass "function parameters are not prefixed"
+cat > "$tmp/weird.c" <<'E12'
+space x {
+ int v;
+ int
+ f
+ (
+   int a ,
+   const char * s
+ )
+ /* c */
+ // d
+ {
+   return a + (s != 0) + v;
+ }
+ int h(int a) [[gnu::unused]]
+ { return a + v; }
+}
+E12
+./okc prepare -o "$tmp/weird.out.c" "$tmp/weird.c"
+grep -Fq ' x_f' "$tmp/weird.out.c" || fail "newline before paren"
+grep -Fq '   int a ,' "$tmp/weird.out.c" || fail "multiline parameters"
+grep -Fq '   return a + (s != 0) + x_v;' "$tmp/weird.out.c" || fail "body after comments"
+grep -Fq ' int x_h(int a) [[gnu::unused]]' "$tmp/weird.out.c" || fail "attributes between signature and body"
+grep -Fq ' { return a + x_v; }' "$tmp/weird.out.c" || fail "body after attributes"
+[ "$(wc -l < "$tmp/weird.c")" = "$(wc -l < "$tmp/weird.out.c")" ] || fail "line count with odd formatting"
+pass "unusual function formatting"
 cat > "$tmp/skip.c" <<'E4'
 space z {
 const char *s = "z::item one";

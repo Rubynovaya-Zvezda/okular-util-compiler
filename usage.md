@@ -7,6 +7,24 @@ Syntax:
 
 - `space z { ... }` — declarations inside the block get the `z_` prefix. No nesting.
 - `z::item` → `z_item`; `z::item.member` → `z_item_member`. Only two-part forms.
+  Qualified names resolve the same way inside and outside a `space` block.
+- `::item` → `item` (global scope), including inside a `space` block.
+- Parameters of function definitions keep their names; space-scope globals
+  used in the function body still get the prefix. Newlines, comments and
+  `[[attributes]]` between the signature and `{` are tolerated; attribute
+  contents are left untouched.
+
+Example:
+
+```c
+space x {
+ bool v = false;
+ int funct(int a, int b) { v = 0>a+b; return v; }
+}
+/* becomes */
+bool x_v = false;
+int x_funct(int a, int b) { x_v = 0>a+b; return x_v; }
+```
 
 The hook is the Bazel module at `/home/danila/project/okular/compiler`.
 

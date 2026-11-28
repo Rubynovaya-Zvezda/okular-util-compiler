@@ -3,7 +3,11 @@
 Bazel module with a C23 namespace hook:
 
 - `space z { ... }` prefixes declarations in the block with `z_`;
-- `z::item` → `z_item`, and `z::item.member` → `z_item_member`.
+- `z::item` → `z_item`, and `z::item.member` → `z_item_member`, both inside and
+  outside `space` blocks.
+- `::item` → `item` (the global scope), also inside `space` blocks.
+- Parameters of function definitions are not prefixed, but globals declared in
+  the space are (both at their declaration and at their uses in the function).
 
 Struct/union members keep their names (they are already isolated by the struct).
 Enum constants are prefixed with their owner, e.g. `space x { enum { one, two } c; }`
